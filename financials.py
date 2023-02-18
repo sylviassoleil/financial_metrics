@@ -3,10 +3,11 @@ from scipy import optimize
 import pandas as pd
 import numpy as np
 
-class xirr_second_derivative():
+
+class XIRR():
     def __init__(self):
         self.guess_list = [x for x in np.arange(0.1, 1, 0.1) for x in (x, -x)]
-
+        self.annualized_factor = 1/365.
     def xnpv(self, rate, cashflows):
         """
         Calculate the net present value of a series of cashflows at irregular intervals.
@@ -31,7 +32,10 @@ class xirr_second_derivative():
         """
         chron_order = sorted(cashflows, key=lambda x: x[0])
         t0 = chron_order[0][0]  # t0 is the date of the first cash flow
-        return sum([t[1] / (1 + rate) ** ((t[0] - t0).days / 365.0) for t in chron_order])
+        res = 0
+        for t in chron_order:
+            res += t[1] / (1 + rate) ** ((t[0] - t0).days *self.annualized_factor)
+        return res
 
     def eir_derivative_func(self, rate, cash_flow):
         """Find the derivative or the EIR function, used for calculating
@@ -44,40 +48,36 @@ class xirr_second_derivative():
 
         Credit: http://mail.scipy.org/pipermail/numpy-discussion/2009-May/042736.html
         """
-        pmts, dates = [x[1] for x in cash_flow], [x[0] for x in cash_flow]
+        # pmts, dates = [x[1] for x in cash_flow], [x[0] for x in cash_flow]
 
-        dcf = []
-        for i, cf in enumerate(pmts):
-            d = dates[i] - dates[0]
-            n = (-d.days / 365.)
-            dcf.append(cf * n * (rate + 1) ** (n - 1))
-        return sum(dcf)
+        dcf = 0
+        for i, val in enumerate(cash_flow):  # cf
+            d = val[0] - cash_flow[0][0]
+            n = (-d.days * self.annualized_factor)
+            dcf += val[1] * n * (rate + 1) ** (n - 1)
+        return dcf
 
     def eir_second_derivative_func(self, rate, cash_flow):
         """
         similar to first derivative
         """
-        pmts, dates = [x[1] for x in cash_flow], [x[0] for x in cash_flow]
-
-        dcf = []
-        for i, cf in enumerate(pmts):
-            d = dates[i] - dates[0]
-            n = (-d.days / 365.)
-            dcf.append(cf * n * (n-1) * (rate + 1) ** (n - 2))
-        return sum(dcf)
+        # pmts, dates = [x[1] for x in cash_flow], [x[0] for x in cash_flow]
+        dcf = 0
+        for i, val in enumerate(cash_flow):  # cf
+            d = val[0] - cash_flow[0][0]
+            n = (-d.days*self.annualized_factor)
+            dcf += val[1] * n * (n - 1) * (rate + 1) ** (n - 2)
+        return dcf
 
     def xirr(self, cashflows):
 
         """
-        :param cashflows: the list is assumed to sorted by date in asending order, i.e. cashflows[0] is the inital cash flow
-
         Calculate the Internal Rate of Return of a series of cashflows at irregular intervals.
-        Arguments
-        ---------
-        * cashflows: a list object in which each element is a list of the pair (date, cash_flow),
-        where date is a python datetime.date object and cash_flow is an integer or floating number.
-        Cash outflows (investments) are represented with negative amounts, and cash inflows (returns) are positive amounts.
-        * guess (optional, default = 0.1): a guess at the solution to be used as a starting point for the numerical solution.
+
+        :param cashflows: the pair (date, cash_flow),
+               the list is assumed to sorted by date in ascending order, i.e. cashflows[0] is the inital cash flow
+               Cash outflows (investments) are represented with negative amounts, and cash inflows (returns) are positive amounts.
+
         Returns
         --------
         * Returns the IRR as a single value
@@ -95,30 +95,25 @@ class xirr_second_derivative():
             return np.nan
 
         sign_list = list(np.sign([x[1] for x in cashflows]))
-        unique_sign_non_zero = dict.fromkeys([i for i in sign_list if i!=0])
+        unique_sign_non_zero = set(list(filter(lambda i: i != 0, sign_list)))
 
-        if len(unique_sign_non_zero)<2:
+        if len(unique_sign_non_zero) < 2:
             return np.nan
 
-        try:
-            # print(cashflows)
-            o = []
-            for i in self.guess_list:
+        o = []
+        for i in self.guess_list:
+            if len(o) == 1:
+                return o[0] if ~isinstance(o[0], complex) else np.nan
+            else:
                 try:
-                    if len(o) == 1:
-                        return o[0] if ~isinstance(o[0], complex) else np.nan
-                    else:
-                        print(i)
-                        o.append(optimize.newton(lambda r: self.xnpv(r, cashflows), i,
-                                                 fprime= lambda r: self.eir_derivative_func(r, cashflows),
-                                                 fprime2= lambda r : self.eir_second_derivative_func(r, cashflows)
-                                                 # ,
-                                                 # rtol=0.00001
-                        ))
+                    o.append(optimize.newton(lambda r: self.xnpv(r, cashflows), i,
+                                             fprime=lambda r: self.eir_derivative_func(r, cashflows),
+                                             fprime2=lambda r: self.eir_second_derivative_func(r, cashflows)
+                                             # ,
+                                             # rtol=0.00001
+                                             ))
                 except:
                     pass
-        except:
-            return np.nan
 
 
 def get_look_back_quarter_date(current_date: datetime.date,
@@ -131,25 +126,27 @@ def get_look_back_quarter_date(current_date: datetime.date,
     """
     return (current_date + pd.offsets.MonthEnd(lb_months)).date()
 
-def get_turnover_standard(group, portfolio_value, purchase_col = ['new_add_cash_flow'], sold_col = ['new_exit_cash_flow']):
-    #Portfolio value is the end value of the portfolio
-    new_add_cash_flow = (group[purchase_col].sum(axis = 1)).sum()
-    new_exit_cash_flow = (group[sold_col].sum(axis = 1)).sum()
+
+def get_turnover_standard(group, portfolio_value, purchase_col=['new_add_cash_flow'], sold_col=['new_exit_cash_flow']):
+    # Portfolio value is the end value of the portfolio
+    new_add_cash_flow = (group[purchase_col].sum(axis=1)).sum()
+    new_exit_cash_flow = (group[sold_col].sum(axis=1)).sum()
     # portfolio_value = group.portfolio_value.median()
     return (min([new_add_cash_flow if new_add_cash_flow > 0 else np.inf,
-                      new_exit_cash_flow if new_exit_cash_flow > 0 else np.inf]) if max([new_add_cash_flow, new_exit_cash_flow]) > 0 else 0 )/portfolio_value \
-           if portfolio_value > 0 \
-           else np.nan
+                 new_exit_cash_flow if new_exit_cash_flow > 0 else np.inf]) if max(
+        [new_add_cash_flow, new_exit_cash_flow]) > 0 else 0) / portfolio_value \
+        if portfolio_value > 0 \
+        else np.nan
 
 
 if __name__ == '__main__':
     pass
-    cash_flow= [-2246618000,  -0, -221098065.3, -119790087.1, 2761567298]
-    date = [x.date() for x in pd.date_range(datetime.date(2018,9,30), datetime.date(2019,9,30), periods = 5)]
-    cash_flow_list = [[d, v] for d,v in zip(date, cash_flow)]
+    positive_cash_flow = np.random.uniform(0, 100000, 10)
+    negative_cash_flow = np.random.uniform(-100000, 0, 10)
+    cash_flows = [negative_cash_flow[0], *np.random.choice([*positive_cash_flow, *negative_cash_flow[1:]], 19, replace=False)]
+    dates = [x.date() for x in pd.date_range(datetime.date(2018, 9, 30), datetime.date(2019, 9, 30), periods=20)]
+    cash_flow_list = [(d, v) for d, v in zip(dates, cash_flows)]
 
-
-    xsd = xirr_second_derivative()
-    t = xsd.xirr(cash_flow_list)
-
-    
+    xsd = XIRR()
+    irr = xsd.xirr(cash_flow_list)
+    pd.DataFrame(cash_flow_list).to_csv('t.csv', index=False)

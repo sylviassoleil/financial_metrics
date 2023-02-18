@@ -7,7 +7,8 @@ import numpy as np
 class XIRR():
     def __init__(self):
         self.guess_list = [x for x in np.arange(0.1, 1, 0.1) for x in (x, -x)]
-        self.annualized_factor = 1/365.
+        self.annualized_factor = 1 / 365.
+
     def xnpv(self, rate, cashflows):
         """
         Calculate the net present value of a series of cashflows at irregular intervals.
@@ -34,7 +35,7 @@ class XIRR():
         t0 = chron_order[0][0]  # t0 is the date of the first cash flow
         res = 0
         for t in chron_order:
-            res += t[1] / (1 + rate) ** ((t[0] - t0).days *self.annualized_factor)
+            res += t[1] / (1 + rate) ** ((t[0] - t0).days * self.annualized_factor)
         return res
 
     def eir_derivative_func(self, rate, cash_flow):
@@ -65,7 +66,7 @@ class XIRR():
         dcf = 0
         for i, val in enumerate(cash_flow):  # cf
             d = val[0] - cash_flow[0][0]
-            n = (-d.days*self.annualized_factor)
+            n = (-d.days * self.annualized_factor)
             dcf += val[1] * n * (n - 1) * (rate + 1) ** (n - 2)
         return dcf
 
@@ -143,7 +144,8 @@ if __name__ == '__main__':
     pass
     positive_cash_flow = np.random.uniform(0, 100000, 10)
     negative_cash_flow = np.random.uniform(-100000, 0, 10)
-    cash_flows = [negative_cash_flow[0], *np.random.choice([*positive_cash_flow, *negative_cash_flow[1:]], 19, replace=False)]
+    cash_flows = [negative_cash_flow[0],
+                  *np.random.choice([*positive_cash_flow, *negative_cash_flow[1:]], 19, replace=False)]
     dates = [x.date() for x in pd.date_range(datetime.date(2018, 9, 30), datetime.date(2019, 9, 30), periods=20)]
     cash_flow_list = [(d, v) for d, v in zip(dates, cash_flows)]
 
